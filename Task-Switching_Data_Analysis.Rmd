@@ -1,0 +1,167 @@
+---
+title: "Modeling in Cognitive Science - Task-Switching Data Visualization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r packages}
+library(tidyverse)
+library(aida)
+library(ghibli)
+library(cowplot)
+```
+
+## Load the data
+
+```{r data}
+data <- read_csv("Task-Switching_Experiment_Data.csv", show_col_types = FALSE)
+```
+
+```{r}
+head(data)
+```
+
+## Proportion of correct responses
+
+```{r}
+# Overall counts (-> 94.3% correct overall)
+table(data$correct)
+
+# Grouped by task transition (repetition, switch)
+data %>% 
+  filter(task_transition != "null") %>% 
+  group_by(task_transition) %>% 
+  summarize(mean_correct = mean(correct, na.rm = TRUE))
+
+# Grouped by congruency (congruent, incongruent)
+data %>% 
+  group_by(congruency) %>% 
+  summarize(mean_correct = mean(correct, na.rm = TRUE))
+```
+
+```{r}
+# Run a chi-square test using correct answers grouped by task transition
+transition_counts <- data %>% filter(task_transition != "null") %>% group_by(task_transition) %>% summarize(n = sum(correct, na.rm = TRUE)) %>% pull(n)
+names(transition_counts) <- c("repetition", "switch")
+transition_counts
+
+chisq.test(transition_counts)
+```
+
+```{r}
+# Run a chi-square test using correct answers grouped by congruency
+congruency_counts <- data %>% group_by(congruency) %>% summarize(n = sum(correct, na.rm = TRUE)) %>% pull(n)
+names(congruency_counts) <- c("congruent", "incongruent")
+congruency_counts
+
+chisq.test(congruency_counts)
+```
+
+## Overview of reaction times
+
+```{r}
+# Mean reaction time overall
+mean(data$rt)
+
+# Grouped by task transition (repetition, switch)
+data %>% 
+  group_by(task_transition) %>% 
+  summarize(mean_rt = mean(rt))
+
+# Grouped by congruency (congruent, incongruent)
+data %>% 
+  group_by(congruency) %>% 
+  summarize(mean_rt = mean(rt))
+```
+
+```{r}
+# Run t-test using reaction times depending on task transition
+t.test(rt ~ task_transition, data = data %>% filter(task_transition != "null"))
+```
+
+```{r}
+# Run t-test using reaction times depending on congruency
+t.test(rt ~ congruency, data = data)
+```
+
+## Plot reaction times
+
+```{r}
+data %>% 
+  group_by(id, run) %>% 
+  summarize(mean_correct = mean(correct, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = run, y = mean_correct, group = id, color = id)) + 
+  geom_line() +
+  ghibli::scale_color_ghibli_c("MononokeMedium") +
+  scale_x_continuous(breaks = seq(2, 10, by = 2), limits = c(1, 10)) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.2), limits = c(0, 1)) +
+  theme_classic() +
+  theme(legend.position = "none", text = element_text(family = "Luminari"), panel.grid.major = element_line(size = 0.2, color = "#333333", linetype = "dotted")) +
+  labs(title = "Response behaviour of participants across experimental runs", x = "Experimental run", y =  "Proportion of correct responses")
+```
+
+```{r}
+# Calculate bootstrapped confidence intervals grouped by task transition
+transition_summary <- data %>% 
+  filter(task_transition != "null") %>% 
+  group_by(task_transition) %>%
+  nest() %>% 
+  summarise(
+      CIs = map(data, function(d) bootstrapped_CI(d$rt))
+  ) %>%
+  unnest(CIs)
+  
+transition_summary
+```
+
+```{r}
+# Plot reaction times depending on congruency of trials
+transition_plot <- data %>% 
+  filter(task_transition != "null", rt > 0) %>% 
+  ggplot(aes(x = task_transition, y = rt, color = task_transition)) +
+  geom_jitter(alpha = 0.4) +
+  geom_violin(color = "black", alpha = 0.1) +
+  geom_pointrange(aes(x = task_transition, y = mean, ymin = lower, ymax = upper), color = "black", data = transition_summary) +
+  ghibli::scale_color_ghibli_d("MarnieMedium1", direction = -1) +
+  theme_classic() +
+  theme(legend.position = "none", text = element_text(family = "Luminari"), panel.grid.major = element_line(size = 0.2, color = "#333333", linetype = "dotted")) +
+  labs(title = "Reaction times depending on task transition", x = "Task transition", y = "Reaction time (in ms)")
+```
+
+```{r}
+# Calculate bootstrapped confidence intervals grouped by congruency
+congruency_summary <- data %>% 
+  group_by(congruency) %>%
+  nest() %>% 
+  summarise(
+      CIs = map(data, function(d) bootstrapped_CI(d$rt))
+  ) %>%
+  unnest(CIs)
+  
+congruency_summary
+```
+
+
+```{r}
+# Plot reaction times depending on congruency of trials
+congruency_plot <- data %>% 
+  filter(rt > 0) %>% 
+  ggplot(aes(x = congruency, y = rt, color = congruency)) +
+  geom_jitter(alpha = 0.4) +
+  geom_violin(color = "black", alpha = 0.1) +
+  geom_pointrange(aes(x = congruency, y = mean, ymin = lower, ymax = upper), color = "black", data = congruency_summary) +
+  ghibli::scale_color_ghibli_d("MarnieMedium1", direction = -1) +
+  theme_classic() +
+  theme(legend.position = "none", text = element_text(family = "Luminari"), panel.grid.major = element_line(size = 0.2, color = "#333333", linetype = "dotted")) +
+  labs(title = "Reaction times depending on trial congruency", x = "Congruency", y = "Reaction time (in ms)")
+```
+
+```{r}
+# Create a plot grid consisting of both plots
+plot_grid(transition_plot, congruency_plot, nrow = 1, labels = "auto", label_fontfamily = "Luminari", hjust = 0, vjust = 1.4)
+```
+
